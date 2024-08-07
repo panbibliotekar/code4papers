@@ -1,0 +1,90 @@
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+
+# Data for electrochemical etching and deposition
+areas_etching = {
+    'Materials Science': 2215,
+    'Physics': 1745,
+    'Chemistry': 1243,
+    'Electrochemistry': 915,
+    'Engineering': 847
+}
+
+areas_deposition = {
+    'Materials Science': 15354,
+    'Chemistry': 13623,
+    'Physics': 8763,
+    'Electrochemistry': 6813,
+    'Other Science & Technology': 5234
+}
+
+total_etching = sum(areas_etching.values())
+total_deposition = sum(areas_deposition.values())
+percent_etching = {k: (v / total_etching) * 100 for k, v in areas_etching.items()}
+percent_deposition = {k: (v / total_deposition) * 100 for k, v in areas_deposition.items()}
+df_etching = pd.DataFrame(list(percent_etching.items()), columns=['Research Area', 'Percentage'])
+df_deposition = pd.DataFrame(list(percent_deposition.items()), columns=['Research Area', 'Percentage'])
+def create_side_by_side_radar_charts_with_values(data1, data2, color1, color2):
+    labels1 = np.array(data1['Research Area'])
+    stats1 = data1['Percentage'].values
+    labels2 = np.array(data2['Research Area'])
+    stats2 = data2['Percentage'].values
+    angles1 = np.linspace(0, 2 * np.pi, len(labels1), endpoint=False).tolist()
+    angles2 = np.linspace(0, 2 * np.pi, len(labels2), endpoint=False).tolist()
+    stats1 = np.concatenate((stats1, [stats1[0]]))
+    angles1 = np.concatenate((angles1, [angles1[0]]))
+    stats2 = np.concatenate((stats2, [stats2[0]]))
+    angles2 = np.concatenate((angles2, [angles2[0]]))
+    fig, axs = plt.subplots(1, 2, figsize=(18, 10), subplot_kw=dict(polar=True))
+
+    # First chart
+    axs[0].fill(angles1, stats1, color=color1, alpha=0.25)
+    axs[0].plot(angles1, stats1, color=color1, linewidth=2)
+    axs[0].set_yticklabels([])
+    axs[0].set_xticks(angles1[:-1])
+    axs[0].set_xticklabels(labels1, color='grey', size=12)
+    axs[0].set_title('Electrochemical Etching', size=15, y=1.1, color=color1)
+    for angle, stat in zip(angles1, stats1):
+        ha = 'center'
+        va = 'center'
+        if angle == 0: 
+            ha = 'center'
+            va = 'bottom'
+        elif angle > 0 and angle < np.pi: 
+            ha = 'left'
+            va = 'center'
+        elif angle == np.pi:  
+            ha = 'center'
+            va = 'top'
+        else:  
+            ha = 'right'
+            va = 'center'
+        axs[0].text(angle, stat + 3, f'{stat:.1f}%', ha=ha, va=va, size=11, color=color1)
+
+    # Second chart
+    axs[1].fill(angles2, stats2, color=color2, alpha=0.25)
+    axs[1].plot(angles2, stats2, color=color2, linewidth=2)
+    axs[1].set_yticklabels([])
+    axs[1].set_xticks(angles2[:-1])
+    axs[1].set_xticklabels(labels2, color='grey', size=12)
+    axs[1].set_title('Electrochemical Deposition', size=15, y=1.1, color=color2)
+    for angle, stat in zip(angles2, stats2):
+        ha = 'center'
+        va = 'center'
+        if angle == 0:  
+            ha = 'center'
+            va = 'bottom'
+        elif angle > 0 and angle < np.pi:
+            ha = 'left'
+            va = 'center'
+        elif angle == np.pi:
+            ha = 'center'
+            va = 'top'
+        else: 
+            ha = 'right'
+            va = 'center'
+        axs[1].text(angle, stat + 3, f'{stat:.1f}%', ha=ha, va=va, size=11, color=color2)
+    plt.tight_layout()
+    plt.show()
+create_side_by_side_radar_charts_with_values(df_etching, df_deposition, 'blue', 'green')
