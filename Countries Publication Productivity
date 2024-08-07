@@ -1,0 +1,45 @@
+import pandas as pd
+import plotly.express as px
+
+data_path = 'Downloads/countries_etching.txt'
+df = pd.read_csv(data_path, sep='\t')
+
+country_replacements = {
+    "PEOPLES R CHINA": "China",
+    "USA": "United States",
+    "ENGLAND": "United Kingdom",
+    "USSR": "Russia",
+    "FED REP GER": "Germany",
+    "CZECHOSLOVAKIA": "Czech Republic",
+    "UKSSR": "Ukraine",
+    "GER DEM REP": "Germany",
+    "TURKIYE": "Turkey",
+    "YUGOSLAVIA": "Serbia",
+    "WEST GERMANY": "Germany"
+}
+
+df['Countries/Regions'] = df['Countries/Regions'].replace(country_replacements)
+
+fig = px.choropleth(
+    df,
+    locations='Countries/Regions',
+    locationmode='country names',
+    color='Record Count',
+    hover_name='Countries/Regions',
+    hover_data={'Record Count': True, '% of 5\xa0166': ':.2f'},
+    color_continuous_scale=px.colors.sequential.Plasma,
+    title='Publication Productivity of Countries in Electrochemical Etching',
+    labels={'Record Count': 'Publications'},
+    template='plotly_white'
+)
+
+fig.update_layout(
+    title_x=0.5,
+    geo=dict(
+        showframe=False,
+        showcoastlines=True,
+        projection_type='natural earth'
+    )
+)
+
+fig.show()
