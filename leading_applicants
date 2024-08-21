@@ -1,0 +1,10 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+top_applicants = pd.read_csv('Downloads/Top Applicans.csv')
+top_applicants_sorted = top_applicants.sort_values(by='Document Count', ascending=False)
+plt.figure(figsize=(10, 6))
+plt.barh(top_applicants_sorted['Applicant Name Exact'], top_applicants_sorted['Document Count'], color='purple')
+plt.xlabel('Number of Patent Filings')
+plt.ylabel('Applicant')
+plt.grid(True)
+plt.show()
