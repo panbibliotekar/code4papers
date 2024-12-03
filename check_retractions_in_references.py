@@ -8,7 +8,7 @@ def normalize_doi(doi):
     return re.sub(r'\s+', '', doi.strip().lower()) if doi else None
 
 def extract_doi_from_pdf(file_path):
-    """Витягуємо DOI зі списку літератури у PDF-файлі."""
+    """Витягуємо DOIs зі списку літератури у PDF-файлі."""
     references = set()
     try:
         reader = PdfReader(file_path)
@@ -27,7 +27,7 @@ def extract_doi_from_pdf(file_path):
     return references
 
 def load_retraction_watch(file_path):
-    """Завантаження списку DOI з бази Retraction Watch."""
+    """Завантаження списку DOIs з бази Retraction Watch."""
     retractions = set()
     with open(file_path, 'r', encoding='utf-8') as csv_file:
         reader = csv.DictReader(csv_file)
@@ -38,15 +38,15 @@ def load_retraction_watch(file_path):
     return retractions
 
 def find_retractions(references, retractions):
-    """Порівнює DOI зі списку літератури з базою Retraction Watch."""
+    """Порівнюємо DOIs зі списку літератури з базою Retraction Watch."""
     return references.intersection(retractions)
 
 def main():
-    pdf_file = "Downloads/PIIS2405844024036788.pdf"  # Шлях до PDF-файлу
-    retractions_file = "Downloads/retraction_watch.csv"  # Шлях до файлу Retraction Watch
+    pdf_file = "paper1.pdf"  # Шлях до PDF-файлу
+    retractions_file = "retraction_watch.csv"  # Шлях до файлу Retraction Watch
 
     # Витягування DOI зі списку літератури в PDF
-    print("Витягування DOI зі списку літератури в PDF...")
+    print("Витягування DOIs зі списку літератури в PDF...")
     references = extract_doi_from_pdf(pdf_file)
 
     # Завантаження файлу Retraction Watch
@@ -63,7 +63,7 @@ def main():
         for doi in found_retractions:
             print(f"Відкликана стаття: {doi}")
     else:
-        print("Ретракції не знайдені у списку літератури.")
+        print("Ретракцій не знайдено у списку літератури.")
 
 if __name__ == "__main__":
     main()
