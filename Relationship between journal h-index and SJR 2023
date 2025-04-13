@@ -1,0 +1,35 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+file_path = "/data/Scimago Journal Rank 2023.xlsx"
+df = pd.read_excel(file_path)
+
+df_clean = df.dropna(subset=['SJR', 'H index', 'SJR Best Quartile']).copy()
+df_clean.rename(columns={'SJR Best Quartile': 'Q'}, inplace=True)
+
+filtered_df = df_clean[(df_clean['H index'] <= 100) & (df_clean['SJR'] <= 10)]
+
+quartile_colors = {
+	'Q1': '#1f77b4',
+	'Q2': '#ff7f0e',
+	'Q3': '#2ca02c',
+	'Q4': '#d62728'
+}
+
+plt.figure(figsize=(10, 6))
+for quartile, color in quartile_colors.items():
+	subset = filtered_df[filtered_df['Q'] == quartile]
+	plt.scatter(subset['H index'], subset['SJR'], s=10, label=quartile, alpha=0.7, c=color)
+
+plt.axvline(x=5, color='black', linestyle='--', linewidth=1, label='h-index = 5')
+
+plt.xlabel('H-index')
+plt.ylabel('SJR')
+plt.legend(title='Quartile', loc='upper right', bbox_to_anchor=(1.15, 1.0))
+plt.grid(True)
+plt.tight_layout()
+
+output_path = "/data/Figure1.png"
+plt.savefig(output_path, dpi=300, bbox_inches='tight')
+
+output_path
