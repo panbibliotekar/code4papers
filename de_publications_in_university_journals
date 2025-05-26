@@ -1,0 +1,60 @@
+import pandas as pd
+import requests
+from tqdm import tqdm
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+openbib_file = "Downloads/kb_a_addr_inst.csv"
+df = pd.read_csv(openbib_file, low_memory=False)
+
+issn_list_file = "Downloads/ULRICH_all.xlsx"
+issn_df = pd.read_excel(issn_list_file)
+
+print_issn = issn_df["Print ISSN"].dropna().astype(str).str.strip()
+online_issn = issn_df["Online ISSN"].dropna().astype(str).str.strip()
+target_issn = set(print_issn).union(set(online_issn))
+
+def get_issn_l(openalex_id):
+    try:
+        work_id = openalex_id.split("/")[-1]
+        url = f"https://api.openalex.org/works/{work_id}"
+        r = requests.get(url)
+        if r.status_code == 200:
+            data = r.json()
+            return data.get("host_venue", {}).get("issn_l")
+    except Exception as e:
+        print(f"Error retrieving {openalex_id}: {e}")
+    return None
+
+openalex_ids = df["openalex_id"].dropna().unique()
+
+matches = []
+
+print(f"Checking {len(openalex_ids)} OpenAlex records...")
+
+for oid in tqdm(openalex_ids):
+    issn = get_issn_l(oid)
+    if issn and issn in target_issn:
+        matches.append(oid)
+
+df_filtered = df[df["openalex_id"].isin(matches)]
+
+try:
+    inst_df = pd.read_csv("Downloads/kb_inst.csv")
+    inst_lookup = inst_df.set_index("kb_inst_id")["name"].to_dict()
+    df_filtered["institution_name"] = df_filtered["kb_inst_id"].map(inst_lookup)
+except:
+    df_filtered["institution_name"] = df_filtered["kb_inst_id"].astype(str)
+
+inst_counts = df_filtered["institution_name"].value_counts().reset_index()
+inst_counts.columns = ["institution_name", "num_publications"]
+
+print(inst_counts)
+
+plt.figure(figsize=(12, 6))
+sns.barplot(data=inst_counts, x="num_publications", y="institution_name", palette="crest")
+plt.title("Publications by German institutions in university journals")
+plt.xlabel("Number of publications")
+plt.ylabel("Institution name")
+plt.tight_layout()
+plt.show()
