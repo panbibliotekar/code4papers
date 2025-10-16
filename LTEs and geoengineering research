@@ -1,0 +1,66 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Завантаження даних
+file_path = "Analysis LTEs.xlsx"
+df = pd.read_excel(file_path, sheet_name="Analysis")
+
+# Групування за Theme і Sub-theme
+theme_sub_counts = df.groupby(["Theme", "Sub-theme"]).size().unstack(fill_value=0)
+
+# Побудова stacked bar chart
+fig, ax = plt.subplots(figsize=(10.5, 6))
+theme_sub_counts.plot(
+    kind="barh",
+    stacked=True,
+    ax=ax,
+    width=0.7,
+    cmap="tab20c"
+)
+
+# Базове оформлення
+ax.set_xlabel("Number of LTEs", fontsize=12)
+ax.set_ylabel("Theme", fontsize=12)
+ax.tick_params(axis='x', labelsize=11)
+ax.tick_params(axis='y', labelsize=11)
+
+# Легенда
+ax.legend(
+    title="Sub-theme",
+    loc="upper center",
+    bbox_to_anchor=(0.5, -0.18),
+    ncol=3,
+    fontsize=12,
+    title_fontsize=14,
+    frameon=False
+)
+
+# Підписи відсотків
+for i, (theme, row) in enumerate(theme_sub_counts.iterrows()):
+    total = row.sum()
+    x_pos = 0
+    last_x = -1  
+    for value in row:
+        if value > 0:
+            percent = value / total * 100
+            label_x = x_pos + value / 2
+
+            if label_x - last_x < 1.5:
+                label_x = last_x + 1.5
+
+            ax.text(
+                label_x, i, f"{percent:.1f}%",
+                va="center", ha="center",
+                fontsize=7, color="black", weight="bold"
+            )
+
+            last_x = label_x
+            x_pos += value
+
+plt.tight_layout()
+plt.subplots_adjust(bottom=0.22)  # місце для легенди
+
+# Збереження
+plt.savefig("Fig2_Theme_Subtheme_horizontal_blacklabels_fixed.png", dpi=300, bbox_inches="tight")
+
+plt.show()
