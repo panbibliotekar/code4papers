@@ -12,9 +12,6 @@ input_files = [
 LIST_FIELDS = {"AU", "AF", "DE", "ID"}
 
 def parse_wos_txt(path):
-    """
-    Читає WoS txt-файл (Full Record) і повертає список словників (по одному на запис).
-    """
     records = []
     current = {}
     current_tag = None
@@ -62,8 +59,6 @@ def parse_wos_txt(path):
 
     return records
 
-# Збираємо записи з усіх файлів
-
 all_records = []
 for path in input_files:
     recs = parse_wos_txt(path)
@@ -77,7 +72,6 @@ def parse_c1_affiliations(c1_text):
     if not c1_text:
         return []
 
-    # C1 ми вже зібрали в один рядок, без перенесень
     pattern = r"\[(.*?)\]\s*([^[]+)"
     matches = re.findall(pattern, c1_text)
 
@@ -92,7 +86,6 @@ def parse_c1_affiliations(c1_text):
         affiliations.append((authors_str.strip(), addr_clean, country))
     return affiliations
 
-
 def normalize_country(c):
     
     if not c:
@@ -100,7 +93,6 @@ def normalize_country(c):
     c = c.strip().lower()
     c = c.replace(".", "")
     return c
-
 
 def get_first_author_country_and_countries(record):
     
@@ -116,7 +108,6 @@ def get_first_author_country_and_countries(record):
 
     au_list = record.get("AU", [])
     if au_list:
-        # AU зараз = [ 'Barlybayev, A', 'Amangeldy, N', ... ]
         first_au = au_list[0]
         first_surname = first_au.split(",")[0].strip()
     else:
@@ -187,7 +178,6 @@ for rec in all_records:
     })
 
 df = pd.DataFrame(rows)
-df.loc[df["PY"] == "2025", "PY"] = "2024"
 
 if "UT" in df.columns:
     before = len(df)
