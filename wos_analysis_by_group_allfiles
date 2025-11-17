@@ -1,0 +1,230 @@
+import re
+import glob
+import pandas as pd
+
+input_files = [
+    "wos1.txt",
+    "wos2.txt",
+    "wos3.txt",
+    "wos4.txt",
+]
+
+LIST_FIELDS = {"AU", "AF", "DE", "ID"}
+
+def parse_wos_txt(path):
+    """
+    Читає WoS txt-файл (Full Record) і повертає список словників (по одному на запис).
+    """
+    records = []
+    current = {}
+    current_tag = None
+
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line:
+                continue
+
+            if line.startswith("ER"):
+                if current:
+                    records.append(current)
+                current = {}
+                current_tag = None
+                continue
+
+            if len(line) >= 3 and line[2] == " ":
+                tag2 = line[0:2]
+                if tag2[0].isupper() and tag2[1].isalnum():
+                    tag = tag2
+                    value = line[3:].strip()
+                    current_tag = tag
+
+                    if tag in LIST_FIELDS:
+                        current.setdefault(tag, []).append(value)
+                    else:
+                        if tag in current:
+                            current[tag] += " " + value
+                        else:
+                            current[tag] = value
+                    continue  
+
+            if current_tag is None:
+                continue
+
+            value = line.strip()
+            if current_tag in LIST_FIELDS:
+                current[current_tag].append(value)
+            else:
+                current[current_tag] += " " + value
+
+    if current:
+        records.append(current)
+
+    return records
+
+# Збираємо записи з усіх файлів
+
+all_records = []
+for path in input_files:
+    recs = parse_wos_txt(path)
+    print(f"{path}: зчитано {len(recs)} записів")
+    all_records.extend(recs)
+
+print(f"Усього записів (до dedup): {len(all_records)}")
+
+def parse_c1_affiliations(c1_text):
+    
+    if not c1_text:
+        return []
+
+    # C1 ми вже зібрали в один рядок, без перенесень
+    pattern = r"\[(.*?)\]\s*([^[]+)"
+    matches = re.findall(pattern, c1_text)
+
+    affiliations = []
+    for authors_str, addr_str in matches:
+        addr_clean = addr_str.strip()
+        parts = [p.strip() for p in addr_clean.split(",") if p.strip()]
+        if not parts:
+            country = None
+        else:
+            country = parts[-1].rstrip().rstrip(".").strip()
+        affiliations.append((authors_str.strip(), addr_clean, country))
+    return affiliations
+
+
+def normalize_country(c):
+    
+    if not c:
+        return ""
+    c = c.strip().lower()
+    c = c.replace(".", "")
+    return c
+
+
+def get_first_author_country_and_countries(record):
+    
+    c1_text = record.get("C1", "")
+    affs = parse_c1_affiliations(c1_text)
+
+    countries = set()
+    for _, _, country in affs:
+        if country:
+            countries.add(country)
+
+    first_author_country = None
+
+    au_list = record.get("AU", [])
+    if au_list:
+        # AU зараз = [ 'Barlybayev, A', 'Amangeldy, N', ... ]
+        first_au = au_list[0]
+        first_surname = first_au.split(",")[0].strip()
+    else:
+        first_surname = None
+
+    if first_surname and affs:
+        for authors_str, addr_str, country in affs:
+            if not country:
+                continue
+            for auth in authors_str.split(";"):
+                surname_full = auth.split(",")[0].strip()
+                if surname_full == first_surname:
+                    first_author_country = country
+                    break
+            if first_author_country is not None:
+                break
+
+    if first_author_country is None and len(countries) == 1:
+        first_author_country = list(countries)[0]
+
+    return first_author_country, countries
+
+rows = []
+
+for rec in all_records:
+    ut = rec.get("UT", None)
+    py = rec.get("PY", None)
+    so = rec.get("SO", None)
+    pu = rec.get("PU", None)
+    oa = rec.get("OA", "")
+
+    au_list = rec.get("AU", [])
+    first_author = au_list[0] if au_list else None
+
+    first_author_country, all_countries_raw = get_first_author_country_and_countries(rec)
+
+    all_countries = set()
+    for c in all_countries_raw:
+        if c:
+            all_countries.add(c)
+
+    is_international = len(all_countries) > 1
+    has_ukraine_aff = any("ukraine" in normalize_country(c) for c in all_countries)
+
+    fa_norm = normalize_country(first_author_country)
+
+    if "ukraine" in fa_norm:
+        if is_international:
+            group_type = "UA_international"
+        else:
+            group_type = "UA_domestic"
+    else:
+        group_type = "NonUA"
+
+    rows.append({
+        "UT": ut,
+        "PY": py,
+        "SO": so,
+        "PU": pu,
+        "OA_raw": oa,
+        "first_author": first_author,
+        "first_author_country_raw": first_author_country,
+        "first_author_country_norm": fa_norm,
+        "all_countries": "; ".join(sorted(all_countries)),
+        "is_international": is_international,
+        "has_ukraine_aff": has_ukraine_aff,
+        "group_type": group_type,
+    })
+
+df = pd.DataFrame(rows)
+df.loc[df["PY"] == "2025", "PY"] = "2024"
+
+if "UT" in df.columns:
+    before = len(df)
+    df = df.drop_duplicates(subset=["UT"])
+    after = len(df)
+    print(f"Після dedup за UT: {after} записів (було {before})")
+
+print("\nПриклад рядків:")
+print(df.head(10))
+
+df.to_csv("wos_parsed_allfiles_with_first_author_country.csv", index=False)
+print("Збережено: wos_parsed_allfiles_with_first_author_country.csv")
+
+print("\nКількість записів за group_type:")
+print(df["group_type"].value_counts(dropna=False))
+
+mask_gold = df["OA_raw"].str.lower().str.contains("gold", na=False)
+df_gold = df[mask_gold].copy()
+
+print(f"\nGold OA записів: {len(df_gold)}")
+
+grouped_year_group = (
+    df_gold
+    .groupby(["PY", "group_type"])
+    .size()
+    .reset_index(name="n_papers")
+    .sort_values(["PY", "group_type"])
+)
+
+print("\nПідсумки за роками і групами:")
+print(grouped_year_group)
+
+pivot = grouped_year_group.pivot(index="PY", columns="group_type", values="n_papers").fillna(0)
+
+print("\nТаблиця (роки × group_type):")
+print(pivot)
+
+grouped_year_group.to_csv("wos_summary_by_year_group_allfiles.csv", index=False)
+pivot.to_csv("wos_summary_by_year_group_wide_allfiles.csv")
+print("\nЗбережено: wos_summary_by_year_group_allfiles.csv, wos_summary_by_year_group_wide_allfiles.csv")
