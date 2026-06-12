@@ -1,0 +1,325 @@
+import argparse
+import logging
+import re
+from pathlib import Path
+from typing import Final
+
+import pandas as pd
+
+UA_MAIL_SERVICES: Final[set[str]] = {
+    "ukr.net",
+    "i.ua",
+    "meta.ua",
+}
+
+GLOBAL_MAIL_SERVICES: Final[set[str]] = {
+    "gmail.com",
+    "outlook.com",
+    "hotmail.com",
+    "yahoo.com",
+}
+
+SERVICE_PREFIXES: Final[tuple[str, ...]] = (
+    "no-reply",
+    "noreply",
+    "do-not-reply",
+    "donotreply",
+    "editor",
+    "office",
+    "info",
+    "support",
+    "admin",
+    "journal",
+    "submission",
+    "manuscript",
+    "contact",
+    "webmaster",
+    "postmaster",
+    "dekan",
+    "dekanat",
+    "sekretar",
+)
+
+UKRAINE_TERMS: Final[tuple[str, ...]] = (
+    "ukraine",
+    "ukrainian",
+
+)
+
+EMAIL_RE: Final[re.Pattern[str]] = re.compile(
+    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}"
+)
+
+def normalize_email(email: str) -> str:
+    return email.strip().lower().strip(".,;:()[]{}<>")
+
+def extract_emails(value: object) -> list[str]:
+    if pd.isna(value):
+        return []
+
+    emails = EMAIL_RE.findall(str(value))
+    return [normalize_email(email) for email in emails]
+
+def get_domain(email: str) -> str:
+    return email.split("@", 1)[1].lower()
+
+def is_service_email(email: str) -> bool:
+    local_part = email.split("@", 1)[0].lower()
+
+    return any(
+        local_part == prefix
+        or local_part.startswith(prefix + ".")
+        or local_part.startswith(prefix + "-")
+        or local_part.startswith(prefix + "_")
+        for prefix in SERVICE_PREFIXES
+    )
+
+def has_ukrainian_affiliation(row: pd.Series, affiliation_columns: list[str]) -> bool:
+    text = " ".join(
+        str(row[column])
+        for column in affiliation_columns
+        if column in row and pd.notna(row[column])
+    ).lower()
+
+    return any(term in text for term in UKRAINE_TERMS)
+
+def is_ukrainian_institutional_domain(domain: str) -> bool:
+  
+    return (
+        domain.endswith(".edu.ua")
+        or domain.endswith(".gov.ua")
+        or domain.endswith(".org.ua")
+        or domain.endswith(".nas.gov.ua")
+        or domain.endswith(".ac.ua")
+    )
+
+def evaluate_email(email: str, row_has_ukrainian_affiliation: bool) -> tuple[bool, str]:
+    
+    domain = get_domain(email)
+
+    if is_service_email(email):
+        return False, "service_or_nonindividual_address"
+
+    if is_ukrainian_institutional_domain(domain):
+        return True, "ukrainian_institutional_domain"
+
+    if domain in UA_MAIL_SERVICES:
+        return True, "ukrainian_commercial_service"
+
+    if domain in GLOBAL_MAIL_SERVICES:
+        if row_has_ukrainian_affiliation:
+            return True, "global_service_with_ukrainian_affiliation"
+
+        return False, "global_service_without_ukrainian_affiliation"
+
+    return False, "foreign_or_unapproved_domain"
+
+def choose_preferred_emails(emails: list[str]) -> list[str]:
+   
+    ukrainian_institutional_emails = [
+        email
+        for email in emails
+        if is_ukrainian_institutional_domain(get_domain(email))
+    ]
+
+    if ukrainian_institutional_emails:
+        return ukrainian_institutional_emails
+
+    return emails
+
+def find_email_column(columns: pd.Index) -> str:
+    candidates = [column for column in columns if "email" in column.lower()]
+
+    if not candidates:
+        raise ValueError(
+            "No email column found. Expected a column such as 'Email Addresses'."
+        )
+
+    return candidates[0]
+
+def find_affiliation_columns(columns: pd.Index) -> list[str]:
+    
+    return [
+        column
+        for column in columns
+        if "address" in column.lower() or "affiliation" in column.lower()
+    ]
+
+def build_reports(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    email_column = find_email_column(df.columns)
+    affiliation_columns = find_affiliation_columns(df.columns)
+
+    kept_rows = []
+    excluded_rows = []
+
+    for index, row in df.iterrows():
+        raw_emails = extract_emails(row[email_column])
+
+        if not raw_emails:
+            continue
+
+        row_has_ukrainian_affiliation = has_ukrainian_affiliation(
+            row,
+            affiliation_columns,
+        )
+
+        preferred_emails = choose_preferred_emails(raw_emails)
+
+        for email in preferred_emails:
+            keep, reason = evaluate_email(
+                email,
+                row_has_ukrainian_affiliation,
+            )
+
+            record = {
+                "email": email,
+                "domain": get_domain(email),
+                "reason": reason,
+                "source_row": index + 2,
+                "has_ukrainian_affiliation_in_record": row_has_ukrainian_affiliation,
+            }
+
+            if keep:
+                kept_rows.append(record)
+            else:
+                excluded_rows.append(record)
+
+    kept_df = pd.DataFrame(kept_rows)
+    excluded_df = pd.DataFrame(excluded_rows)
+
+    if not kept_df.empty:
+        kept_df = (
+            kept_df
+            .drop_duplicates(subset=["email"])
+            .sort_values("email")
+            .reset_index(drop=True)
+        )
+
+    if not excluded_df.empty:
+        excluded_df = (
+            excluded_df
+            .drop_duplicates(subset=["email"])
+            .sort_values("email")
+            .reset_index(drop=True)
+        )
+
+    domain_summary = (
+        kept_df["domain"]
+        .value_counts()
+        .rename_axis("domain")
+        .reset_index(name="kept_email_count")
+        if not kept_df.empty
+        else pd.DataFrame(columns=["domain", "kept_email_count"])
+    )
+
+    reason_summary = (
+        excluded_df["reason"]
+        .value_counts()
+        .rename_axis("reason")
+        .reset_index(name="excluded_email_count")
+        if not excluded_df.empty
+        else pd.DataFrame(columns=["reason", "excluded_email_count"])
+    )
+
+    processing_summary = pd.DataFrame(
+        [
+            {
+                "metric": "WoS records in input file",
+                "value": len(df),
+            },
+            {
+                "metric": "Email column used",
+                "value": email_column,
+            },
+            {
+                "metric": "Affiliation/address columns used",
+                "value": "; ".join(affiliation_columns),
+            },
+            {
+                "metric": "Unique kept emails",
+                "value": len(kept_df),
+            },
+            {
+                "metric": "Unique excluded emails",
+                "value": len(excluded_df),
+            },
+        ]
+    )
+
+    return kept_df, excluded_df, domain_summary, reason_summary, processing_summary
+
+def write_excel_report(
+    output_path: Path,
+    kept_df: pd.DataFrame,
+    excluded_df: pd.DataFrame,
+    domain_summary: pd.DataFrame,
+    reason_summary: pd.DataFrame,
+    processing_summary: pd.DataFrame,
+) -> None:
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        kept_df.to_excel(writer, sheet_name="cleaned_emails", index=False)
+        excluded_df.to_excel(writer, sheet_name="excluded_emails", index=False)
+        domain_summary.to_excel(writer, sheet_name="domain_summary", index=False)
+        reason_summary.to_excel(writer, sheet_name="reason_summary", index=False)
+        processing_summary.to_excel(writer, sheet_name="processing_summary", index=False)
+
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Extract and clean email addresses from a Web of Science Excel export."
+    )
+
+    parser.add_argument(
+        "input_file",
+        help="Path to the Web of Science Excel file.",
+    )
+
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="wos_cleaned_emails.xlsx",
+        help="Output Excel file name. Default: wos_cleaned_emails.xlsx",
+    )
+
+    return parser.parse_args()
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+    )
+
+    args = parse_arguments()
+
+    input_path = Path(args.input_file)
+    output_path = Path(args.output)
+
+    if not input_path.exists():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    logging.info("Reading input file: %s", input_path)
+
+    df = pd.read_excel(input_path)
+
+    (
+        kept_df,
+        excluded_df,
+        domain_summary,
+        reason_summary,
+        processing_summary,
+    ) = build_reports(df)
+
+    write_excel_report(
+        output_path=output_path,
+        kept_df=kept_df,
+        excluded_df=excluded_df,
+        domain_summary=domain_summary,
+        reason_summary=reason_summary,
+        processing_summary=processing_summary,
+    )
+
+    logging.info("Output written to: %s", output_path)
+    logging.info("Unique kept emails: %s", len(kept_df))
+    logging.info("Unique excluded emails: %s", len(excluded_df))
+
+if __name__ == "__main__":
+    main()
